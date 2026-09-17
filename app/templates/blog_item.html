@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <a class="back-link" href="/">← 返回今日热点</a>
+    <h1>{{ item.title }}</h1>
+    <p>{{ item.report_date }} · {{ item.type_label }} · 重要性 {{ "%.1f"|format(item.importance_score) }}</p>
+  </div>
+  <button type="button" class="button" onclick="deepResearch('{{ item.report_date }}', '{{ item.slug }}')">AI 深度研究</button>
+</section>
+
+<article class="detail-layout">
+  <section class="detail-main">
+    <div class="section-block">
+      <h2>{{ item.detail.article_title }}</h2>
+      <div class="article-body">{{ item.detail.article_content | replace('\n', '<br>') | safe }}</div>
+    </div>
+
+    <div class="section-block" id="deep-research">
+      <h2>C 层深度研究</h2>
+      {% if item.deep_research.status == "success" %}
+        <pre class="report">{{ item.deep_research.markdown }}</pre>
+      {% elif item.deep_research.status == "running" %}
+        <p>深度研究正在生成，请稍后刷新。</p>
+      {% else %}
+        <p>尚未生成。点击页面右上角“AI 深度研究”后，会调用研究子 Agent 并永久缓存成功结果。</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <aside class="source-panel">
+    <h2>相关来源</h2>
+    <p class="muted">这些是写作时用到的原始材料，文章本身会尽量把它们串成一篇能直接阅读的科技自媒体短文。</p>
+    <div class="source-list">
+      {% for source in item.detail.related_sources %}
+      <a href="{{ source.url }}" target="_blank" rel="noreferrer">
+        <strong>{{ source.source }}</strong>
+        <span>{{ source.title }}</span>
+      </a>
+      {% else %}
+      <p>暂无来源链接。</p>
+      {% endfor %}
+    </div>
+  </aside>
+</article>
+{% endblock %}

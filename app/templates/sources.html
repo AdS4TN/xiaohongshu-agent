@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero"><h1>来源状态</h1><p>每个 Adapter 最近一次运行记录。</p></section>
+<table>
+  <thead><tr><th>来源</th><th>状态</th><th>开始</th><th>结束</th><th>抓取</th><th>入库</th><th>错误</th></tr></thead>
+  <tbody>
+  {% for r in runs %}
+  <tr>
+    <td>{{ r.source }}</td>
+    <td><span class="badge {{ r.status }}">{{ r.status }}</span></td>
+    <td>{{ r.started_at }}</td>
+    <td>{{ r.finished_at or "-" }}</td>
+    <td>{{ r.items_fetched }}</td>
+    <td>{{ r.items_inserted }}</td>
+    <td class="error">{{ r.error_message or "" }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

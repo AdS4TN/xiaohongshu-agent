@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div>
+    <h1>深度搜集报告</h1>
+    <p>热点：<a href="/">{{ report.hotspot.title }}</a></p>
+  </div>
+  <span class="pill">{{ report.status }}</span>
+</section>
+
+<article class="card">
+  <div class="meta">
+    <span>Report #{{ report.id }}</span>
+    <span>{{ report.model }}</span>
+    <span>Started: {{ report.started_at }}</span>
+    {% if report.finished_at %}<span>Finished: {{ report.finished_at }}</span>{% endif %}
+  </div>
+
+  {% if report.status == "running" %}
+    <p>研究子 Agent 正在搜集资料，请稍后刷新本页。</p>
+    <script>setTimeout(() => location.reload(), 5000);</script>
+  {% elif report.status == "failed" %}
+    <p class="error"><b>失败：</b>{{ report.error_message }}</p>
+  {% else %}
+    <pre class="report">{{ report.report_markdown }}</pre>
+  {% endif %}
+</article>
+{% endblock %}

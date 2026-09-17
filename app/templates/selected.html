@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div><h1>已选择热点</h1><p>后续内容生成模块主要读取 <code>/api/hotspots?status=selected</code>。</p></div>
+  <a class="pill" href="/api/hotspots?status=selected">Selected API</a>
+</section>
+{% for h in hotspots %}
+<article class="card">
+  <div class="card-head"><h2>{{ h.title }}</h2><span class="score">{{ "%.1f"|format(h.score) }}</span></div>
+  <p>{{ h.summary }}</p>
+  <p><b>选题角度：</b>{{ h.xiaohongshu_angle }}</p>
+  <div class="links">{% for s in h.sources %}<a href="{{ s.url }}" target="_blank">{{ s.source }} · {{ s.title }}</a>{% endfor %}</div>
+  <div class="actions"><button onclick="research({{ h.id }})">深度搜集</button></div>
+</article>
+{% else %}
+<div class="empty">还没有选择热点。</div>
+{% endfor %}
+{% endblock %}

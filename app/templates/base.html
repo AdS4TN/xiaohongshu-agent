@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Radar V1</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">AI Radar</a>
+    <nav>
+      <a href="/">博客热点</a>
+      <a href="/github-daily">GitHub 日榜</a>
+      <a href="/raw-sources">原始数据</a>
+      <a href="/sources">来源状态</a>
+      <a href="/selected">已选择</a>
+      <button id="run-now" type="button">手动采集</button>
+    </nav>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    const btn = document.getElementById('run-now');
+    if (btn) {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const res = await fetch('/run-now', { method: 'POST' });
+        const data = await res.json();
+        alert(data.message || data.status);
+        btn.disabled = false;
+      });
+    }
+    const refreshArticlesBtn = document.getElementById('refresh-articles');
+    if (refreshArticlesBtn) {
+      refreshArticlesBtn.addEventListener('click', async () => {
+        refreshArticlesBtn.disabled = true;
+        refreshArticlesBtn.textContent = '生成中...';
+        try {
+          const res = await fetch('/api/blog-export/today/llm?force=true', { method: 'POST' });
+          const data = await res.json();
+          if (!res.ok) {
+            alert(data.detail || '热点文章生成失败');
+            return;
+          }
+          alert(`已生成 ${data.cards || 0} 篇热点文章`);
+          location.reload();
+        } finally {
+          refreshArticlesBtn.disabled = false;
+          refreshArticlesBtn.textContent = '刷新热点文章';
+        }
+      });
+    }
+    async function action(id, type) {
+      const res = await fetch(`/api/hotspots/${id}/${type}`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+      if (res.ok) location.reload(); else alert('操作失败');
+    }
+    async function research(id) {
+      const res = await fetch(`/api/hotspots/${id}/research`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        window.location.href = data.url;
+      } else {
+        alert(data.detail || '研究任务启动失败');
+      }
+    }
+    async function deepResearch(reportDate, slug) {
+      const res = await fetch(`/api/blog-export/items/${reportDate}/${slug}/deep-research`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || '深度研究启动失败');
+        return;
+      }
+      if (data.status === 'cached') {
+        location.href = `/ai-hotspots/${reportDate}/${slug}#deep-research`;
+        location.reload();
+        return;
+      }
+      alert(data.status === 'already_running' ? '深度研究已经在生成，请稍后刷新。' : '已启动 AI 深度研究，稍后刷新详情页查看。');
+      location.href = `/ai-hotspots/${reportDate}/${slug}#deep-research`;
+    }
+    async function generateDailyReport() {
+      const ok = confirm('将基于今日 API/RSS 采集材料生成 AI/科技日报，过程可能需要 1-3 分钟。继续吗？');
+      if (!ok) return;
+      const res = await fetch('/api/daily-report/today', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || '今日报告生成失败');
+        return;
+      }
+      if (data.status === 'success') {
+        location.href = data.url || '/daily-report';
+        location.reload();
+      } else if (data.status === 'running') {
+        alert('今日报告正在生成，请稍后刷新。');
+        location.href = data.url || '/daily-report';
+      } else {
+        alert(data.error_message || data.status || '今日报告生成失败');
+      }
+    }
+  </script>
+</body>
+</html>

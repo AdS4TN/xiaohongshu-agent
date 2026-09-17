@@ -1,0 +1,441 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>原始采集数据</h1>
+    <p>这里展示的是 Adapter 入库时保存的 <code>raw_payload_json</code>，用于核对 API/RSS 返回原貌。</p>
+  </div>
+</section>
+
+<section class="card raw-api-note">
+  <h2>前端 POST 接口</h2>
+  <pre><code>POST /api/raw-sources/query
+Content-Type: application/json
+
+{
+  "source": "github",
+  "keyword": "",
+  "limit": 20,
+  "offset": 0
+}</code></pre>
+  <p class="summary">页面优先展示数据库中保存的 <code>raw_payload_json</code> 原始字符串，方便直接核对 API 返回内容。</p>
+</section>
+
+<section class="raw-toolbar card">
+  <label>
+    <span>来源</span>
+    <select id="raw-source">
+      <option value="">全部来源</option>
+      {% for source in sources %}
+      <option value="{{ source }}">{{ source }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>
+    <span>关键词</span>
+    <input id="raw-keyword" type="search" placeholder="标题、摘要或正文">
+  </label>
+
+  <label>
+    <span>每页数量</span>
+    <input id="raw-limit" type="number" min="1" max="100" value="20">
+  </label>
+
+  <button id="raw-query" type="button">查询</button>
+</section>
+
+<section class="raw-results-head">
+  <p id="raw-status" class="muted">等待查询。</p>
+  <div class="raw-pager">
+    <button id="raw-prev" class="secondary" type="button" disabled>上一页</button>
+    <button id="raw-next" class="secondary" type="button" disabled>下一页</button>
+  </div>
+</section>
+
+<section id="raw-results" class="raw-results"></section>
+
+<script>
+  const rawState = { offset: 0, limit: 20, lastCount: 0 };
+
+  const sourceEl = document.getElementById('raw-source');
+  const keywordEl = document.getElementById('raw-keyword');
+  const limitEl = document.getElementById('raw-limit');
+  const queryBtn = document.getElementById('raw-query');
+  const prevBtn = document.getElementById('raw-prev');
+  const nextBtn = document.getElementById('raw-next');
+  const statusEl = document.getElementById('raw-status');
+  const resultsEl = document.getElementById('raw-results');
+
+  function clipText(value, maxLength = 420) {
+    if (!value) return '';
+    const text = String(value);
+    return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+  }
+
+  function formatJson(value) {
+    if (value === null || value === undefined || value === '') return '';
+    if (typeof value === 'string') return value;
+    return JSON.stringify(value, null, 2);
+  }
+
+  function prettyJsonString(value) {
+    if (!value) return '';
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2);
+    } catch (error) {
+      return String(value);
+    }
+  }
+
+  function parsePayload(item) {
+    if (item.raw_payload_json) {
+      try {
+        return JSON.parse(item.raw_payload_json);
+      } catch (error) {
+        return item.raw_payload_json;
+      }
+    }
+    return item.raw_payload;
+  }
+
+  function isObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function isUrl(value) {
+    return typeof value === 'string' && /^https?:\/\//i.test(value);
+  }
+
+  function valueType(value) {
+    if (Array.isArray(value)) return `array(${value.length})`;
+    if (value === null) return 'null';
+    return typeof value;
+  }
+
+  function classifyPayloadKey(key, value) {
+    const lower = String(key).toLowerCase();
+    if (['id', 'node_id', 'name', 'full_name', 'title', 'type', 'modelid', 'model_id', 'private', 'visibility', 'default_branch'].includes(lower)) {
+      return 'identity';
+    }
+    if (['description', 'summary', 'abstract', 'text', 'content', 'readme', 'carddata'].includes(lower)) {
+      return 'content';
+    }
+    if (['owner', 'author', 'authors', 'user', 'organization', 'namespace', 'creator', 'by'].includes(lower)) {
+      return 'owner';
+    }
+    if (lower.includes('created') || lower.includes('updated') || lower.includes('modified') || lower.includes('published') || lower.includes('pushed') || lower === 'time') {
+      return 'time';
+    }
+    if (lower.includes('count') || ['score', 'likes', 'downloads', 'upvotes', 'votes', 'forks', 'watchers', 'stargazers', 'descendants'].includes(lower)) {
+      return 'metrics';
+    }
+    if (lower.includes('url') || ['homepage', 'git_url', 'ssh_url', 'clone_url', 'svn_url'].includes(lower)) {
+      return 'links';
+    }
+    if (['topics', 'tags', 'pipeline_tag', 'sdk', 'language', 'license', 'category', 'categories', 'task', 'library_name'].includes(lower)) {
+      return 'taxonomy';
+    }
+    if (['kids', 'siblings', 'paper', 'permissions', 'parent', 'children', 'files'].includes(lower)) {
+      return 'relations';
+    }
+    if (typeof value === 'boolean' || lower.startsWith('has_') || ['archived', 'disabled', 'fork', 'gated'].includes(lower)) {
+      return 'status';
+    }
+    return 'other';
+  }
+
+  const payloadGroups = [
+    ['identity', '身份与标题'],
+    ['content', '正文/描述'],
+    ['owner', '作者/归属'],
+    ['time', '时间字段'],
+    ['metrics', '互动与规模指标'],
+    ['taxonomy', '标签/分类'],
+    ['links', '链接/API 地址'],
+    ['relations', '关系/嵌套对象'],
+    ['status', '状态/开关'],
+    ['other', '其他字段']
+  ];
+
+  function appendValue(parent, value, depth = 0) {
+    if (value === null || value === undefined) {
+      appendText(parent, 'span', String(value), 'payload-null');
+      return;
+    }
+
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      if (isUrl(value)) {
+        const link = document.createElement('a');
+        link.href = value;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        link.textContent = value;
+        link.className = 'payload-link';
+        parent.appendChild(link);
+      } else {
+        appendText(parent, 'span', clipText(String(value), depth > 0 ? 260 : 520));
+      }
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      const wrap = document.createElement('div');
+      wrap.className = 'payload-array';
+      appendText(wrap, 'span', `数组，共 ${value.length} 项`, 'payload-count');
+      const preview = value.slice(0, 18);
+      const primitive = preview.every(item => item === null || ['string', 'number', 'boolean'].includes(typeof item));
+      if (primitive) {
+        const chips = document.createElement('div');
+        chips.className = 'payload-chips';
+        preview.forEach(item => appendText(chips, 'span', String(item), 'payload-chip'));
+        if (value.length > preview.length) appendText(chips, 'span', `还有 ${value.length - preview.length} 项`, 'payload-chip muted');
+        wrap.appendChild(chips);
+      } else {
+        preview.forEach((item, index) => {
+          const row = document.createElement('div');
+          row.className = 'payload-nested-row';
+          appendText(row, 'span', `[${index}]`, 'payload-key');
+          const cell = document.createElement('div');
+          appendValue(cell, item, depth + 1);
+          row.appendChild(cell);
+          wrap.appendChild(row);
+        });
+      }
+      parent.appendChild(wrap);
+      return;
+    }
+
+    if (isObject(value)) {
+      const entries = Object.entries(value);
+      const nested = document.createElement('div');
+      nested.className = 'payload-nested';
+      appendText(nested, 'div', `对象，共 ${entries.length} 个字段`, 'payload-count');
+      entries.slice(0, depth > 0 ? 14 : 28).forEach(([childKey, childValue]) => {
+        const row = document.createElement('div');
+        row.className = 'payload-nested-row';
+        appendText(row, 'span', childKey, 'payload-key');
+        const cell = document.createElement('div');
+        if (depth >= 2 && isObject(childValue)) {
+          appendText(cell, 'span', `object(${Object.keys(childValue).length})`, 'payload-count');
+        } else {
+          appendValue(cell, childValue, depth + 1);
+        }
+        row.appendChild(cell);
+        nested.appendChild(row);
+      });
+      if (entries.length > (depth > 0 ? 14 : 28)) {
+        appendText(nested, 'div', `还有 ${entries.length - (depth > 0 ? 14 : 28)} 个字段未在结构视图展开，可查看原始字符串。`, 'payload-count');
+      }
+      parent.appendChild(nested);
+      return;
+    }
+
+    appendText(parent, 'span', String(value));
+  }
+
+  function renderPayloadStructure(payload, item) {
+    const root = document.createElement('div');
+    root.className = 'payload-structure';
+
+    if (!isObject(payload)) {
+      appendText(root, 'p', 'payload 不是 JSON 对象，下面显示解析后的原始值。', 'muted');
+      const valueBox = document.createElement('div');
+      appendValue(valueBox, payload);
+      root.appendChild(valueBox);
+      return root;
+    }
+
+    const entries = Object.entries(payload);
+    const summary = document.createElement('div');
+    summary.className = 'payload-summary-row';
+    appendText(summary, 'span', `来源：${item.source || '-'}`);
+    appendText(summary, 'span', `顶层字段：${entries.length}`);
+    appendText(summary, 'span', `payload 类型：object`);
+    root.appendChild(summary);
+
+    const buckets = new Map(payloadGroups.map(([id]) => [id, []]));
+    entries.forEach(([key, value]) => {
+      buckets.get(classifyPayloadKey(key, value)).push([key, value]);
+    });
+
+    payloadGroups.forEach(([groupId, groupTitle]) => {
+      const groupEntries = buckets.get(groupId) || [];
+      if (groupEntries.length === 0) return;
+
+      const section = document.createElement('details');
+      section.className = 'payload-section';
+      section.open = ['identity', 'content', 'owner', 'time', 'metrics', 'taxonomy'].includes(groupId);
+
+      const sectionSummary = document.createElement('summary');
+      sectionSummary.textContent = `${groupTitle}（${groupEntries.length}）`;
+      section.appendChild(sectionSummary);
+
+      const table = document.createElement('div');
+      table.className = 'payload-table';
+      groupEntries.forEach(([key, value]) => {
+        const row = document.createElement('div');
+        row.className = 'payload-row';
+
+        const keyCell = document.createElement('div');
+        keyCell.className = 'payload-key-cell';
+        appendText(keyCell, 'strong', key);
+        appendText(keyCell, 'span', valueType(value), 'payload-type');
+        row.appendChild(keyCell);
+
+        const valueCell = document.createElement('div');
+        valueCell.className = 'payload-value-cell';
+        appendValue(valueCell, value);
+        row.appendChild(valueCell);
+        table.appendChild(row);
+      });
+      section.appendChild(table);
+      root.appendChild(section);
+    });
+
+    return root;
+  }
+
+  function appendText(parent, tagName, text, className) {
+    const node = document.createElement(tagName);
+    if (className) node.className = className;
+    node.textContent = text || '';
+    parent.appendChild(node);
+    return node;
+  }
+
+  function renderMeta(parent, label, value) {
+    if (!value) return;
+    const item = document.createElement('span');
+    item.textContent = `${label}: ${value}`;
+    parent.appendChild(item);
+  }
+
+  function renderItem(item) {
+    const article = document.createElement('article');
+    article.className = 'raw-item';
+
+    const head = document.createElement('div');
+    head.className = 'raw-item-head';
+    const titleWrap = document.createElement('div');
+    appendText(titleWrap, 'h2', item.title || '(无标题)');
+    appendText(titleWrap, 'p', item.url || '', 'raw-url');
+    head.appendChild(titleWrap);
+    appendText(head, 'span', item.source || '', 'badge');
+    article.appendChild(head);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta-row';
+    renderMeta(meta, 'id', item.id);
+    renderMeta(meta, 'source_item_id', item.source_item_id);
+    renderMeta(meta, 'author', item.author);
+    renderMeta(meta, 'published_at', item.published_at);
+    renderMeta(meta, 'created_at', item.created_at);
+    article.appendChild(meta);
+
+    if (item.summary) {
+      appendText(article, 'p', `summary: ${clipText(item.summary)}`, 'raw-brief');
+    }
+    if (item.raw_text) {
+      appendText(article, 'p', `raw_text: ${clipText(item.raw_text)}`, 'raw-brief');
+    }
+
+    const details = document.createElement('div');
+    details.className = 'raw-details';
+
+    const structuredPayload = document.createElement('details');
+    structuredPayload.open = true;
+    const structuredSummary = document.createElement('summary');
+    structuredSummary.textContent = 'payload 结构化视图';
+    structuredPayload.appendChild(structuredSummary);
+    structuredPayload.appendChild(renderPayloadStructure(parsePayload(item), item));
+    details.appendChild(structuredPayload);
+
+    const metrics = document.createElement('details');
+    const metricsSummary = document.createElement('summary');
+    metricsSummary.textContent = 'metrics_json 原始字符串';
+    metrics.appendChild(metricsSummary);
+    appendText(metrics, 'pre', item.metrics_json || prettyJsonString(formatJson(item.metrics)), 'raw-json');
+    details.appendChild(metrics);
+
+    const payload = document.createElement('details');
+    const payloadSummary = document.createElement('summary');
+    payloadSummary.textContent = 'raw_payload_json 原始字符串';
+    payload.appendChild(payloadSummary);
+    appendText(payload, 'pre', item.raw_payload_json || prettyJsonString(formatJson(item.raw_payload)), 'raw-json');
+    details.appendChild(payload);
+
+    article.appendChild(details);
+    return article;
+  }
+
+  function renderResults(data) {
+    resultsEl.replaceChildren();
+    rawState.lastCount = data.count || 0;
+    statusEl.textContent = `当前 offset=${data.offset}，返回 ${data.count} 条，共 ${data.total} 条，limit=${data.limit}。`;
+
+    if (!data.items || data.items.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = '没有查到原始采集记录。可以先点“手动采集”，或放宽来源/关键词条件。';
+      resultsEl.appendChild(empty);
+    } else {
+      data.items.forEach(item => resultsEl.appendChild(renderItem(item)));
+    }
+
+    prevBtn.disabled = rawState.offset <= 0;
+    nextBtn.disabled = !data.has_more;
+  }
+
+  async function queryRawSources(resetOffset = false) {
+    if (resetOffset) rawState.offset = 0;
+    rawState.limit = Math.max(1, Math.min(Number(limitEl.value || 20), 100));
+    limitEl.value = rawState.limit;
+
+    const body = {
+      source: sourceEl.value,
+      keyword: keywordEl.value.trim(),
+      limit: rawState.limit,
+      offset: rawState.offset
+    };
+
+    queryBtn.disabled = true;
+    statusEl.textContent = '查询中...';
+    try {
+      const res = await fetch('/api/raw-sources/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || '查询失败');
+      }
+      renderResults(data);
+    } catch (error) {
+      resultsEl.replaceChildren();
+      statusEl.textContent = error.message || '查询失败';
+      prevBtn.disabled = rawState.offset <= 0;
+      nextBtn.disabled = true;
+    } finally {
+      queryBtn.disabled = false;
+    }
+  }
+
+  queryBtn.addEventListener('click', () => queryRawSources(true));
+  prevBtn.addEventListener('click', () => {
+    rawState.offset = Math.max(0, rawState.offset - rawState.limit);
+    queryRawSources(false);
+  });
+  nextBtn.addEventListener('click', () => {
+    rawState.offset += rawState.limit;
+    queryRawSources(false);
+  });
+  keywordEl.addEventListener('keydown', event => {
+    if (event.key === 'Enter') queryRawSources(true);
+  });
+
+  queryRawSources(true);
+</script>
+{% endblock %}

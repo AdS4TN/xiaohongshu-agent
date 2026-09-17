@@ -1,0 +1,21 @@
+﻿{
+    "name":  "ai-radar-reddit-collector",
+    "version":  "0.1.0",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "login":  "devvit login --copy-paste",
+                    "login:copy":  "devvit login --copy-paste",
+                    "list":  "devvit list apps",
+                    "dev":  "devvit playtest",
+                    "upload":  "devvit upload",
+                    "typecheck":  "tsc --noEmit"
+                },
+    "dependencies":  {
+                         "@devvit/public-api":  "^0.13.2"
+                     },
+    "devDependencies":  {
+                            "devvit":  "^0.13.2",
+                            "typescript":  "latest"
+                        }
+}

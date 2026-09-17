@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="github-daily-head">
+  <div>
+    <h1>GitHub 今日创意项目雷达</h1>
+    <p>基于 GitHub Trending Daily 页面口径，页面会自动为每个项目启动 AI 信息探索：搜索、审核、二次延伸、再审核并生成最终中文摘要。</p>
+  </div>
+  <div class="github-head-actions">
+    <a class="button" href="/run-now">重新采集</a>
+    <a class="button secondary" href="/raw-sources">查看原始数据</a>
+  </div>
+</section>
+
+<section class="github-summary">
+  <div class="github-summary-item">
+    <span>候选项目</span>
+    <strong>{{ total }}</strong>
+  </div>
+  <div class="github-summary-item">
+    <span>已补证据</span>
+    <strong>{{ enriched_count }}</strong>
+  </div>
+  <div class="github-summary-item">
+    <span>今日新增 Star</span>
+    <strong>{{ total_stars_today }}</strong>
+  </div>
+  <div class="github-summary-item">
+    <span>主要语言</span>
+    <strong>{% if language_stats %}{{ language_stats[0][0] }}{% else %}-{% endif %}</strong>
+  </div>
+  <div class="github-summary-item">
+    <span>AI 摘要</span>
+    <strong>{{ info_ready_count }}/{{ cards|length }}</strong>
+  </div>
+</section>
+
+<section class="github-language-row">
+  {% for language, count in language_stats %}
+    <span>{{ language }} · {{ count }}</span>
+  {% endfor %}
+  {% if running %}<span>采集中</span>{% endif %}
+  {% if info_running_count %}<span>{{ info_running_count }} 个 AI 探索中</span>{% endif %}
+  {% if info_pending_count %}<span>{{ info_pending_count }} 个等待探索</span>{% endif %}
+</section>
+
+<section class="github-list">
+  {% for card in cards %}
+  <article class="github-card">
+    <div class="github-rank">#{{ card.rank }}</div>
+    <div class="github-card-main">
+      <div class="github-card-top">
+        <div>
+          <h2><a href="{{ card.url }}" target="_blank" rel="noreferrer">{{ card.title }}</a></h2>
+          <p>{{ card.summary or "暂无仓库简介" }}</p>
+        </div>
+        <div class="github-growth">
+          <strong>+{{ card.stars_today }}</strong>
+          <span>stars today</span>
+        </div>
+      </div>
+
+      <div class="github-metrics">
+        <span>{{ card.language }}</span>
+        <span>{{ card.stars }} stars</span>
+        <span>{{ card.forks }} forks</span>
+        {% if card.repo_pushed_at %}<span>pushed {{ card.repo_pushed_at[:10] }}</span>{% endif %}
+        {% if card.latest_release_name %}<span>release {{ card.latest_release_name }}</span>{% endif %}
+        {% if card.evidence_ready %}<span>evidence ready</span>{% endif %}
+        {% if card.info_expansion_ready %}<span>info expanded</span>{% endif %}
+      </div>
+
+      <div class="github-info-actions">
+        <span class="github-info-status github-info-status-{{ card.info_state.status }}" id="github-info-status-{{ card.id }}">
+          {{ card.info_state.label }}{% if card.info_expanded_at %} · {{ card.info_expanded_at[:19] }}{% endif %}
+        </span>
+        {% if card.info_can_retry and not card.info_state.running %}
+        <button class="button github-info-retry-button" type="button" data-source-item-id="{{ card.id }}">
+          {% if card.info_state.status == "failed" %}重试 AI 检索{% else %}生成 AI 检索{% endif %}
+        </button>
+        {% endif %}
+        <button class="button secondary github-community-button" type="button" data-source-item-id="{{ card.id }}">
+          调试社区信号
+        </button>
+      </div>
+
+      <section class="github-info-debug" id="github-info-debug-{{ card.id }}" data-source-item-id="{{ card.id }}">
+        <div class="github-community-debug" id="github-community-debug-{{ card.id }}" {% if not card.community_signals %}hidden{% endif %}>
+          {% if card.community_signals %}
+          <details class="github-agent-stage">
+            <summary>
+              社区信号爬虫 · 已保存
+              <span>{{ card.community_signals.signals|length if card.community_signals.signals else 0 }} signals</span>
+            </summary>
+            <div class="github-agent-pane">
+              <h4>持久化结果</h4>
+              <pre>{{ card.community_signals | json_pretty }}</pre>
+            </div>
+          </details>
+          {% endif %}
+        </div>
+        {% if card.info_expansion_ready %}
+          <div class="github-info-summary">
+            <strong>最终摘要</strong>
+            {% if card.info_one_liner %}<p>{{ card.info_one_liner }}</p>{% endif %}
+            {% if card.info_daily_report_paragraph %}<p>{{ card.info_daily_report_paragraph }}</p>{% endif %}
+            <div class="github-info-verdicts">
+              <span>审核 1：{{ card.info_round1_verdict or "-" }}</span>
+              <span>审核 2：{{ card.info_round2_verdict or "-" }}</span>
+            </div>
+          </div>
+
+          {% for stage in card.info_debug.stages %}
+          <details class="github-agent-stage">
+            <summary>
+              {{ stage.label }}
+              {% if stage.model %}<span>{{ stage.model }}</span>{% endif %}
+            </summary>
+            {% if stage.raw_content %}
+            <div class="github-agent-pane">
+              <h4>Agent 原始返回</h4>
+              <pre>{{ stage.raw_content }}</pre>
+            </div>
+            {% elif stage.key != "repo_ingest_context" %}
+            <div class="github-agent-empty">旧数据没有保存这一段原始返回，重新运行一次即可看到。</div>
+            {% endif %}
+            <div class="github-agent-pane">
+              <h4>解析后 JSON / 证据包</h4>
+              <pre>{{ stage.parsed | json_pretty }}</pre>
+            </div>
+          </details>
+          {% endfor %}
+        {% else %}
+          <div class="github-agent-empty">
+            {% if card.info_state.status == "running" %}
+              AI 正在自动探索：搜索1 → 审核1 → 搜索2 → 审核2 → 摘要。完成后页面会自动刷新展示结果。
+            {% elif card.info_state.status == "failed" %}
+              自动探索失败：{{ card.info_state.error }}
+            {% else %}
+              已加入自动探索队列。完成后这里会显示最终摘要，以及搜索 AI、审核 AI、摘要 AI 的原始返回和解析结果。
+            {% endif %}
+          </div>
+        {% endif %}
+      </section>
+
+      {% if card.topics %}
+      <div class="github-topics">
+        {% for topic in card.topics %}
+          <span>{{ topic }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if card.readme_text %}
+      <details class="github-readme">
+        <summary>
+          README · {{ card.readme_chars }} chars{% if card.readme_saved_chars and card.readme_saved_chars < card.readme_chars %} · 当前缓存 {{ card.readme_saved_chars }} chars{% endif %}
+        </summary>
+        <pre>{{ card.readme_text }}</pre>
+      </details>
+      {% else %}
+      <div class="github-readme-empty">暂无 README 内容</div>
+      {% endif %}
+    </div>
+  </article>
+  {% else %}
+  <div class="empty">暂无 GitHub Trending 数据。点击“手动采集”运行一次。</div>
+  {% endfor %}
+</section>
+
+{% if info_running_count or info_pending_count %}
+<script>
+  setTimeout(() => {
+    window.location.reload();
+  }, 30000);
+</script>
+{% endif %}
+<script>
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function prettyJson(value) {
+    return escapeHtml(JSON.stringify(value, null, 2));
+  }
+
+  function renderCommunitySignals(target, payload) {
+    const context = payload.community_signals_context || {};
+    const platforms = context.platforms || {};
+    const platformEntries = Object.entries(platforms);
+    const signals = context.signals || [];
+    const limitations = context.limitations || [];
+    const sections = platformEntries.map(([key, value]) => {
+      const summary = value.summary || {};
+      return `
+        <details class="github-agent-stage" open>
+          <summary>
+            社区爬虫 · ${key}
+            <span>${summary.status || "-"} · usable ${summary.usable_signal_count ?? 0}/${summary.raw_signal_count ?? summary.signal_count ?? 0}</span>
+          </summary>
+          <div class="github-agent-pane">
+            <h4>可用信号 signals</h4>
+            <pre>${prettyJson(value.signals || [])}</pre>
+          </div>
+          <div class="github-agent-pane">
+            <h4>原始返回 raw_signals</h4>
+            <pre>${prettyJson(value.raw_signals || [])}</pre>
+          </div>
+          <div class="github-agent-pane">
+            <h4>过滤信号 discarded_signals</h4>
+            <pre>${prettyJson(value.discarded_signals || [])}</pre>
+          </div>
+        </details>
+      `;
+    }).join("");
+
+    target.hidden = false;
+    target.innerHTML = `
+      <div class="github-info-summary">
+        <strong>社区信号爬虫调试</strong>
+        <p>总可用信号：${signals.length}；平台：${platformEntries.length} 个。</p>
+        ${limitations.length ? `<p>限制：${escapeHtml(limitations.join("；"))}</p>` : ""}
+      </div>
+      ${sections || `<div class="github-agent-empty">暂无平台返回。</div>`}
+    `;
+  }
+
+  document.querySelectorAll(".github-community-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const sourceItemId = button.dataset.sourceItemId;
+      const target = document.getElementById(`github-community-debug-${sourceItemId}`);
+      button.disabled = true;
+      button.textContent = "爬取中...";
+      if (target) {
+        target.hidden = false;
+        target.innerHTML = `<div class="github-agent-empty">正在抓取 HN / Reddit / Linux.do / Product Hunt / 博客 / Newsletter...</div>`;
+      }
+      try {
+        const response = await fetch(`/api/source-items/${sourceItemId}/community-signals`, { method: "POST" });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail || response.statusText);
+        }
+        renderCommunitySignals(target, payload);
+      } catch (error) {
+        if (target) {
+          target.innerHTML = `<div class="github-agent-empty">社区信号爬取失败：${error.message}</div>`;
+        }
+      } finally {
+        button.disabled = false;
+        button.textContent = "调试社区信号";
+      }
+    });
+  });
+
+  document.querySelectorAll(".github-info-retry-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const sourceItemId = button.dataset.sourceItemId;
+      const status = document.getElementById(`github-info-status-${sourceItemId}`);
+      button.disabled = true;
+      button.textContent = "启动中...";
+      if (status) {
+        status.className = "github-info-status github-info-status-running";
+        status.textContent = "AI 检索启动中，失败会自动重试，最多 3 次";
+      }
+      try {
+        const response = await fetch(`/api/source-items/${sourceItemId}/github-info-expansion`, { method: "POST" });
+        const payload = await response.json();
+        if (response.status === 409) {
+          if (status) {
+            status.className = "github-info-status github-info-status-done";
+            status.textContent = "已生成";
+          }
+          button.remove();
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(payload.detail || response.statusText);
+        }
+        if (status) {
+          status.className = "github-info-status github-info-status-running";
+          status.textContent = payload.status === "already_running" ? "AI 检索正在运行中" : "AI 检索已启动，最多自动重试 3 次";
+        }
+        setTimeout(() => window.location.reload(), 5000);
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "重试 AI 检索";
+        if (status) {
+          status.className = "github-info-status github-info-status-failed";
+          status.textContent = `启动失败：${error.message}`;
+        }
+      }
+    });
+  });
+</script>
+{% endblock %}

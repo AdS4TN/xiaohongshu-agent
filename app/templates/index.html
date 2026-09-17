@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>AI/科技今日热点</h1>
+    <p>{{ payload.date }} · {{ payload.timezone }} · 首页展示 {{ cards|length }} 条重要性优先卡片{% if running %} · 采集中{% endif %}</p>
+  </div>
+  <div class="head-actions">
+    <button class="button" id="refresh-articles" type="button">刷新热点文章</button>
+    <a class="button secondary" href="/api/blog-export/latest">博客 JSON</a>
+    <a class="button secondary" href="/sources">来源状态</a>
+  </div>
+</section>
+
+<section class="section-block intro-block">
+  <h2>今日热点短文</h2>
+  <p>系统每天从公开 API/RSS 获取科技热点，并将每个热点整理成一篇客观短文。文章重点描述事实、背景和它成为热点的公开信号。</p>
+</section>
+
+<section class="cards-grid">
+  {% for card in cards %}
+  <article class="hotspot-card">
+    <a class="card-main" href="{{ card.detail_path }}">
+      <div class="card-title-row">
+        <h2>{{ card.title }}</h2>
+        <span class="score-box">{{ "%.1f"|format(card.importance_score) }}</span>
+      </div>
+      <p class="summary">{{ card.summary or "暂无摘要" }}</p>
+      <div class="meta-row">
+        <span>{{ card.type_label }}</span>
+        {% for source in card.source_tags %}
+          <span>{{ source }}</span>
+        {% endfor %}
+        <span>C层：{{ card.deep_research_status }}</span>
+      </div>
+    </a>
+    <div class="card-actions">
+      <a class="button" href="{{ card.detail_path }}">查看详情</a>
+      <button type="button" class="button secondary" onclick="deepResearch('{{ card.report_date }}', '{{ card.slug }}')">AI 深度研究</button>
+    </div>
+  </article>
+  {% else %}
+  <div class="empty">暂无热点。点击“手动采集”运行一次，或执行 <code>python scripts/run_once.py</code>。</div>
+  {% endfor %}
+</section>
+{% endblock %}

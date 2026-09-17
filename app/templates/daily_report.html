@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <a class="back-link" href="/">← 返回热点列表</a>
+    <h1>AI/科技今日报告</h1>
+    <p>{{ payload.date }} · {{ payload.timezone }} · 基于 API/RSS 原始材料 + AI 联网补充资料生成</p>
+  </div>
+  <button type="button" class="button" onclick="generateDailyReport()">生成今日报告</button>
+</section>
+
+<section class="detail-layout">
+  <article class="detail-main">
+    <div class="section-block">
+      <h2>生成逻辑</h2>
+      <ol class="fact-list">
+        <li>触发生成时先从 GitHub、HuggingFace、arXiv、Hacker News 等免费 API/RSS 重新获取今日原始热点。</li>
+        <li>Codex 读取所有新闻材料，筛选值得写入日报的主题，并生成研究 brief。</li>
+        <li>联网研究 Agent 根据 brief 搜集更多公开资料、证据链接、争议和待验证点。</li>
+        <li>Codex 基于原始材料和资料包写成完整 Markdown 报告，并缓存当天结果。</li>
+      </ol>
+    </div>
+
+    <div class="section-block" id="daily-report-content">
+      {% if report and report.status == "success" %}
+        <div class="report-meta">
+          <span>日期：{{ report.report_date }}</span>
+          <span>模型链路：{{ report.model }}</span>
+        </div>
+        <pre class="report">{{ report.report_markdown }}</pre>
+      {% elif report and report.status == "running" %}
+        <p>今日报告正在生成中，请稍后刷新。</p>
+      {% elif report and report.status == "failed" %}
+        <p>今日报告生成失败：{{ report.error_message }}</p>
+        <p>可以点击“生成今日报告”重新尝试。</p>
+      {% else %}
+        <p>尚未生成今日报告。点击右上角“生成今日报告”后，将按上述流水线生成完整报告。</p>
+      {% endif %}
+    </div>
+  </article>
+
+  <aside class="source-panel">
+    <h2>今日候选材料</h2>
+    <p>{{ payload.cards|length }} 条候选热点</p>
+    <div class="source-list">
+      {% for card in payload.cards %}
+      <a href="{{ card.detail_path }}">
+        <strong>{{ card.type_label }} · {{ "%.1f"|format(card.importance_score) }}</strong>
+        <span>{{ card.title }}</span>
+      </a>
+      {% else %}
+      <p>暂无候选材料，请先手动采集。</p>
+      {% endfor %}
+    </div>
+  </aside>
+</section>
+{% endblock %}
