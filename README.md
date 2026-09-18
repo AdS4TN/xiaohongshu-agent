@@ -2,7 +2,7 @@
 
 > 自动发现 AI / 科技热点，围绕选题搜集资料、生成文章，并输出可供博客展示的内容数据。
 
-仓库名 `xiaohongshu-agent` 沿用早期命名，项目主要服务于个人博客和科技文章创作。
+项目名为 `ai-radar-blog-writer`，主要服务于个人博客和科技文章创作。
 
 ## 项目定位
 
@@ -67,8 +67,8 @@
 以下以 Python 3.11+ 和 PowerShell 为例，依赖版本范围见 `requirements.txt`：
 
 ```powershell
-git clone https://github.com/AdS4TN/xiaohongshu-agent.git
-cd xiaohongshu-agent
+git clone https://github.com/AdS4TN/ai-radar-blog-writer.git
+cd ai-radar-blog-writer
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
